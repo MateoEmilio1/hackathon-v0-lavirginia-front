@@ -1923,3 +1923,4 @@ body{
 .bg-chart-6       { background-color: var(--chart-6) !important; }
 .bg-chart-9       { background-color: var(--chart-9) !important; }
 .text-muted-foreground-2 { color: var(--muted-fg-2); }
+@keyframes spin { to { transform: rotate(360deg); } }

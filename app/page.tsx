@@ -241,18 +241,137 @@ function mapResultToDisplay(
   return { queueItem, inspection };
 }
 
+/* ---------- Image upload card ---------- */
+function ImageUploadCard({
+  realVal,
+  onFile,
+  onReset,
+}: {
+  realVal: RealVal | null;
+  onFile: (f: File) => void;
+  onReset: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+  }, [previewUrl]);
+
+  function pick(file: File) {
+    if (!file.type.match(/^image\/(jpeg|png)$/)) return;
+    setPreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(file); });
+    onFile(file);
+  }
+
+  function reset() {
+    setPreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+    onReset();
+  }
+
+  const isScanning = realVal?.status === "scanning";
+
+  return (
+    <div className="panel livecam-card">
+      <div className="panel-head">
+        <h3>Imagen para análisis</h3>
+        <span className="pill">
+          {!previewUrl ? "Sin imagen"
+            : isScanning ? "Procesando…"
+            : realVal?.status === "done" ? (realVal.approved ? "APROBADA ✓" : "RECHAZADA ✕")
+            : realVal?.status === "error" ? "Error"
+            : "Lista"}
+        </span>
+      </div>
+      <div
+        className="livecam-frame"
+        style={{ cursor: previewUrl ? "default" : "pointer", position: "relative" }}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) pick(f); }}
+        onClick={() => { if (!previewUrl) inputRef.current?.click(); }}
+      >
+        {previewUrl ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={previewUrl} alt="Imagen analizada" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            {isScanning && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(3,78,162,0.75)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                <svg style={{ animation: "spin 0.9s linear infinite" }} width="40" height="40" viewBox="0 0 40 40" fill="none">
+                  <circle cx="20" cy="20" r="16" stroke="rgba(255,255,255,0.2)" strokeWidth="3.5" />
+                  <path d="M20 4 A16 16 0 0 1 36 20" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" />
+                </svg>
+                <span style={{ color: "#fff", fontWeight: 700, fontSize: 13, letterSpacing: "0.2px" }}>Analizando con IA…</span>
+              </div>
+            )}
+            {realVal?.status === "done" && (
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: realVal.approved ? "rgba(21,128,61,0.93)" : "rgba(185,28,28,0.93)", padding: "14px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 26, color: "#fff", fontWeight: 800 }}>{realVal.approved ? "✓" : "✕"}</span>
+                <div>
+                  <div style={{ color: "#fff", fontWeight: 800, fontSize: 15, letterSpacing: "-0.3px" }}>
+                    {realVal.approved ? "APROBADA" : "RECHAZADA"}
+                  </div>
+                  <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 11.5 }}>
+                    {realVal.duration.toFixed(2)} s · {realVal.item.variety}
+                  </div>
+                </div>
+              </div>
+            )}
+            {realVal?.status === "error" && (
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(120,53,15,0.93)", padding: "12px 16px" }}>
+                <div style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>Error de validación</div>
+                <div style={{ color: "rgba(255,255,255,0.75)", fontSize: 11 }}>{realVal.message.slice(0, 80)}</div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="livecam-empty" style={{ background: dragging ? "var(--bg-2)" : undefined, transition: "background 0.15s", cursor: "pointer" }}>
+            <span className="cam-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </span>
+            <div className="cam-title">{dragging ? "Soltá la imagen aquí" : "Subir imagen de cápsula"}</div>
+            <div className="cam-sub">
+              Arrastrá una imagen acá o hacé clic para seleccionar.<br />
+              Formatos: <b>JPG</b> o <b>PNG</b>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="livecam-controls">
+        {previewUrl && !isScanning ? (
+          <>
+            <button className="btn" onClick={() => inputRef.current?.click()}>Nueva imagen</button>
+            <button className="btn ghost" onClick={reset}>Limpiar</button>
+          </>
+        ) : (
+          <button className="btn" onClick={() => inputRef.current?.click()} disabled={isScanning ?? false}>
+            {isScanning ? "Analizando…" : "Seleccionar imagen"}
+          </button>
+        )}
+        <input ref={inputRef} type="file" accept="image/jpeg,image/png" style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) pick(f); e.target.value = ""; }} />
+      </div>
+      <div className="livecam-help">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></svg>
+        El backend analiza la imagen en <b>3 ejes de calidad</b> usando visión por IA multimodal.
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Inspection panel ---------- */
 function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspection) => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [realVal, setRealVal] = useState<RealVal | null>(null);
   const [queueIdx, setQueueIdx] = useState(0);
   const [phase, setPhase] = useState<"scanning" | "result">("scanning");
   const [elapsed, setElapsed] = useState(0);
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
+  async function handleFile(file: File) {
     const startedAt = performance.now();
     setRealVal({ status: "scanning", filename: file.name });
     try {
@@ -315,14 +434,6 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
               <h3>Cápsula en análisis</h3>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <span className="pill">{QUEUE.length - (queueIdx % QUEUE.length)} cápsulas en cola</span>
-                <button
-                  className="btn"
-                  style={{ padding: "4px 12px", fontSize: 12.5 }}
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={realVal?.status === "scanning"}
-                >
-                  {realVal?.status === "scanning" ? "Analizando…" : "Subir imagen"}
-                </button>
                 {realVal?.status === "done" && (
                   <button
                     className="btn ghost"
@@ -332,13 +443,6 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                     Demo
                   </button>
                 )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  style={{ display: "none" }}
-                  onChange={handleFileChange}
-                />
               </div>
             </div>
             <div className="inspect-stack" key={current.id}>
@@ -389,7 +493,7 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                     <div key={axKey} className={"axis " + axState} data-i={i}>
                       <div className="axis-head">
                         <span className="axis-code">EJE {i + 1}</span>
-                        <span className="axis-icon">{phase === "scanning" ? "" : ax.status === "ok" ? "✓" : "✕"}</span>
+                        <span className="axis-icon">{displayPhase === "scanning" ? "" : ax.status === "ok" ? "✓" : "✕"}</span>
                       </div>
                       <div className="axis-title">
                         {ax.title === "Empaquetado" ? "Rotura del empaquetado"
@@ -421,7 +525,13 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
               </div>
             </div>
           </Reveal>
-          <Reveal delay="1"><LivecamCard /></Reveal>
+          <Reveal delay="1">
+            <ImageUploadCard
+              realVal={realVal}
+              onFile={handleFile}
+              onReset={() => setRealVal(null)}
+            />
+          </Reveal>
         </div>
       </div>
     </section>
