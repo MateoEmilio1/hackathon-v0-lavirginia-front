@@ -394,16 +394,16 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
             {hasResult ? (
               <div className="inspect-stack" key={realVal.item.id}>
                 <div className="inspect-top">
-                  <div className="inspect-vis" style={{ minHeight: 340, padding: 0, overflow: "hidden" }}>
+                  <div className="inspect-vis" style={{ minHeight: 380, padding: 12, overflow: "hidden" }}>
                     <img
                       src={realVal.previewUrl}
                       alt={realVal.filename}
                       style={{
                         width: "100%",
                         height: "100%",
-                        maxHeight: 420,
+                        maxHeight: 440,
                         objectFit: "contain",
-                        borderRadius: "var(--r-md)",
+                        borderRadius: 8,
                       }}
                     />
                   </div>
@@ -456,16 +456,16 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
               </div>
             ) : realVal?.status === "scanning" ? (
               <div className="inspect-stack">
-                <div className="inspect-vis" style={{ minHeight: 340, padding: 0, overflow: "hidden", position: "relative" }}>
+                <div className="inspect-vis" style={{ minHeight: 380, padding: 12, overflow: "hidden", position: "relative" }}>
                   <img
                     src={realVal.previewUrl}
                     alt={realVal.filename}
                     style={{
                       width: "100%",
                       height: "100%",
-                      maxHeight: 420,
+                      maxHeight: 440,
                       objectFit: "contain",
-                      borderRadius: "var(--r-md)",
+                      borderRadius: 8,
                       opacity: 0.6,
                     }}
                   />
@@ -484,7 +484,7 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
               </div>
             ) : (
               <div className="inspect-stack" style={{ opacity: 0.4 }}>
-                <div className="inspect-vis idle-vis" style={{ minHeight: 200 }}>
+                <div className="inspect-vis idle-vis" style={{ minHeight: 380 }}>
                   <div style={{ textAlign: "center", color: "var(--ink-2)", fontSize: 13, lineHeight: 1.6 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Sin imagen cargada</div>
                     <div>Arrastrá o seleccioná una foto de bandeja</div>

@@ -772,7 +772,7 @@ body{
 
 .inspect-top{
   display: grid;
-  grid-template-columns: 200px 1fr auto;
+  grid-template-columns: 320px 1fr auto;
   gap: 24px;
   align-items: center;
 }
