@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Header from "@/components/Header";
-import { Reveal, CountUp, Capsule } from "@/components/shared";
+import { Reveal, CountUp } from "@/components/shared";
 import { RECENT_INSPECTIONS, SHIFT, CHARTS, type QueueItem, type RecentInspection } from "@/lib/data";
 import { validatePackage } from "@/lib/api";
 import type { ValidatorResult } from "@/lib/types";
@@ -166,8 +166,8 @@ function LivecamCard() {
 
 /* ---------- Validator helpers ---------- */
 type RealVal =
-  | { status: "scanning"; filename: string }
-  | { status: "done"; item: QueueItem; approved: boolean; duration: number }
+  | { status: "scanning"; filename: string; previewUrl: string }
+  | { status: "done"; item: QueueItem; approved: boolean; duration: number; previewUrl: string }
   | { status: "error"; message: string };
 
 function mapResultToDisplay(
@@ -251,16 +251,25 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
     if (!file) return;
     e.target.value = "";
     const startedAt = performance.now();
-    setRealVal({ status: "scanning", filename: file.name });
+    const previewUrl = URL.createObjectURL(file);
+    setRealVal({ status: "scanning", filename: file.name, previewUrl });
     try {
       const result = await validatePackage(file);
       const duration = (performance.now() - startedAt) / 1000;
       const { queueItem, inspection } = mapResultToDisplay(result, file.name, duration);
-      setRealVal({ status: "done", item: queueItem, approved: result.approved, duration });
+      setRealVal({ status: "done", item: queueItem, approved: result.approved, duration, previewUrl });
       onNewInspection(inspection);
     } catch (err) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
       setRealVal({ status: "error", message: err instanceof Error ? err.message : "Error al validar" });
     }
+  }
+
+  function handleReset() {
+    if (realVal && "previewUrl" in realVal && realVal.previewUrl) {
+      URL.revokeObjectURL(realVal.previewUrl);
+    }
+    setRealVal(null);
   }
 
   const allAxes = ["eje1", "eje2", "eje3"] as const;
@@ -288,7 +297,7 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                   <button
                     className="btn ghost"
                     style={{ padding: "4px 12px", fontSize: 12.5 }}
-                    onClick={() => setRealVal(null)}
+                    onClick={handleReset}
                   >
                     Validar otra imagen
                   </button>
@@ -324,9 +333,19 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
             >
               {realVal?.status === "scanning" ? (
                 <>
-                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 10, animation: "spin 1s linear infinite" }}>
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 8 }}>
+                    <img
+                      src={realVal.previewUrl}
+                      alt="preview"
+                      style={{
+                        width: 48, height: 48, borderRadius: 8, objectFit: "cover",
+                        border: "2px solid var(--bg-2)",
+                      }}
+                    />
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                  </div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: "var(--brand)", marginBottom: 4 }}>
                     Analizando {realVal.filename}…
                   </div>
@@ -336,9 +355,14 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                 </>
               ) : hasResult ? (
                 <>
-                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--ink-2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 10 }}>
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" />
-                  </svg>
+                  <img
+                    src={realVal.previewUrl}
+                    alt="preview"
+                    style={{
+                      width: 64, height: 64, borderRadius: 10, objectFit: "cover",
+                      border: "2px solid var(--bg-2)", marginBottom: 8,
+                    }}
+                  />
                   <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)", marginBottom: 4 }}>
                     ¿Validar otra imagen?
                   </div>
@@ -370,8 +394,18 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
             {hasResult ? (
               <div className="inspect-stack" key={realVal.item.id}>
                 <div className="inspect-top">
-                  <div className="inspect-vis" style={{ minHeight: 180 }}>
-                    <Capsule color={realVal.item.color} size={150} label="LV" />
+                  <div className="inspect-vis" style={{ minHeight: 180, padding: 0, overflow: "hidden" }}>
+                    <img
+                      src={realVal.previewUrl}
+                      alt={realVal.filename}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        maxHeight: 260,
+                        objectFit: "contain",
+                        borderRadius: "var(--r-md)",
+                      }}
+                    />
                   </div>
                   <div className="inspect-id-block">
                     <div className="row1">
@@ -421,12 +455,30 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                 </div>
               </div>
             ) : realVal?.status === "scanning" ? (
-              <div className="inspect-stack" style={{ opacity: 0.5 }}>
-                <div className="inspect-vis idle-vis" style={{ minHeight: 180 }}>
-                  <div style={{ textAlign: "center", color: "var(--ink-2)", fontSize: 13, lineHeight: 1.6 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Enviando imagen al backend…</div>
-                    <div>Conectando con el modelo Python</div>
-                    <div>en {process.env.NEXT_PUBLIC_API_URL || "localhost:3000"}</div>
+              <div className="inspect-stack">
+                <div className="inspect-vis" style={{ minHeight: 180, padding: 0, overflow: "hidden", position: "relative" }}>
+                  <img
+                    src={realVal.previewUrl}
+                    alt={realVal.filename}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      maxHeight: 260,
+                      objectFit: "contain",
+                      borderRadius: "var(--r-md)",
+                      opacity: 0.6,
+                    }}
+                  />
+                  <div style={{
+                    position: "absolute", inset: 0,
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    background: "rgba(255,255,255,0.7)",
+                    borderRadius: "var(--r-md)",
+                  }}>
+                    <span className="pulse-ring" />
+                    <div style={{ color: "var(--brand)", fontWeight: 600, fontSize: 14, zIndex: 1 }}>
+                      Analizando con IA…
+                    </div>
                   </div>
                 </div>
               </div>
