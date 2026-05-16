@@ -386,7 +386,21 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
   }
 
   const demoItem = QUEUE[queueIdx % QUEUE.length];
-  const current = realVal?.status === "done" ? realVal.item : demoItem;
+  const scanningItem: QueueItem = {
+    id: "Procesando…",
+    product: realVal?.status === "scanning" ? (realVal.filename.length > 20 ? realVal.filename.slice(0, 17) + "…" : realVal.filename) : "—",
+    variety: "Validando imagen con IA",
+    color: "#334155",
+    axes: {
+      eje1: { status: "ok", title: "Empaquetado", reading: "Analizando…", detail: "Evaluando estado del empaque" },
+      eje2: { status: "ok", title: "Cápsula",     reading: "Analizando…", detail: "Evaluando estado de la cápsula" },
+      eje3: { status: "ok", title: "Orden",       reading: "Analizando…", detail: "Evaluando orden de las cápsulas" },
+    },
+  };
+  const current =
+    realVal?.status === "done" ? realVal.item
+    : realVal?.status === "scanning" ? scanningItem
+    : demoItem;
   const allAxes = ["eje1", "eje2", "eje3"] as const;
   const allOk = allAxes.every(k => current.axes[k].status === "ok");
   const failedAxis = allAxes.findIndex(k => current.axes[k].status === "fail") + 1;
@@ -400,12 +414,13 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
   const CYCLE_TOTAL = 4500;
 
   useEffect(() => {
+    if (realVal !== null) return;
     setPhase("scanning");
     setElapsed(0);
     const t1 = setTimeout(() => setPhase("result"), CYCLE_SCAN);
     const t2 = setTimeout(() => setQueueIdx(i => (i + 1) % QUEUE.length), CYCLE_TOTAL);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [queueIdx]);
+  }, [queueIdx, realVal]);
 
   useEffect(() => {
     const t0 = performance.now();
