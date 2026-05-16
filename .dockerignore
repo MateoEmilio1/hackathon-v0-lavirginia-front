@@ -1,0 +1,9 @@
+node_modules
+.next
+runtime_logs
+.env.local
+.env
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage
