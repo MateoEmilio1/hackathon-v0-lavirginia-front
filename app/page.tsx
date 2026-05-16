@@ -419,7 +419,8 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
     : isWaiting ? waitingItem
     : demoItem;
   const allAxes = ["eje1", "eje2", "eje3"] as const;
-  const allOk = allAxes.every(k => current.axes[k].status === "ok");
+  const axesAllOk = allAxes.every(k => current.axes[k].status === "ok");
+  const allOk = axesAllOk && (realVal?.status !== "done" || realVal.approved);
   const failedAxis = allAxes.findIndex(k => current.axes[k].status === "fail") + 1;
   const displayPhase: "scanning" | "result" =
     isWaiting ? "result"
@@ -519,7 +520,9 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                         : realVal?.status === "error" ? realVal.message.slice(0, 60)
                         : allOk
                           ? "Cumple CC-2026 · " + displayElapsed.toFixed(2) + " s"
-                          : "Falla en Eje " + failedAxis + " · " + displayElapsed.toFixed(2) + " s"}
+                          : failedAxis > 0
+                            ? "Falla en Eje " + failedAxis + " · " + displayElapsed.toFixed(2) + " s"
+                            : "Rechazada · " + displayElapsed.toFixed(2) + " s"}
                   </div>
                 </div>
               </div>
