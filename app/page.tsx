@@ -370,6 +370,7 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
   const [queueIdx, setQueueIdx] = useState(0);
   const [phase, setPhase] = useState<"scanning" | "result">("scanning");
   const [elapsed, setElapsed] = useState(0);
+  const [hasEverValidated, setHasEverValidated] = useState(false);
 
   async function handleFile(file: File) {
     const startedAt = performance.now();
@@ -379,13 +380,28 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
       const duration = (performance.now() - startedAt) / 1000;
       const { queueItem, inspection } = mapResultToDisplay(result, file.name, duration);
       setRealVal({ status: "done", item: queueItem, approved: result.approved, duration });
+      setHasEverValidated(true);
       onNewInspection(inspection);
     } catch (err) {
+      setHasEverValidated(true);
       setRealVal({ status: "error", message: err instanceof Error ? err.message : "Error al validar" });
     }
   }
 
+  const isWaiting = realVal === null && !hasEverValidated;
+
   const demoItem = QUEUE[queueIdx % QUEUE.length];
+  const waitingItem: QueueItem = {
+    id: "—",
+    product: "Sin imagen cargada",
+    variety: "Esperando validación",
+    color: "#334155",
+    axes: {
+      eje1: { status: "ok", title: "Empaquetado", reading: "En espera", detail: "Subí una imagen para iniciar el análisis" },
+      eje2: { status: "ok", title: "Cápsula",     reading: "En espera", detail: "El sistema analizará en 3 ejes de calidad" },
+      eje3: { status: "ok", title: "Orden",       reading: "En espera", detail: "Resultado disponible tras la validación" },
+    },
+  };
   const scanningItem: QueueItem = {
     id: "Procesando…",
     product: realVal?.status === "scanning" ? (realVal.filename.length > 20 ? realVal.filename.slice(0, 17) + "…" : realVal.filename) : "—",
@@ -400,12 +416,14 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
   const current =
     realVal?.status === "done" ? realVal.item
     : realVal?.status === "scanning" ? scanningItem
+    : isWaiting ? waitingItem
     : demoItem;
   const allAxes = ["eje1", "eje2", "eje3"] as const;
   const allOk = allAxes.every(k => current.axes[k].status === "ok");
   const failedAxis = allAxes.findIndex(k => current.axes[k].status === "fail") + 1;
   const displayPhase: "scanning" | "result" =
-    realVal === null ? phase
+    isWaiting ? "result"
+    : realVal === null ? phase
     : realVal.status === "scanning" ? "scanning"
     : "result";
   const displayElapsed = realVal?.status === "done" ? realVal.duration : elapsed;
@@ -414,13 +432,13 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
   const CYCLE_TOTAL = 4500;
 
   useEffect(() => {
-    if (realVal !== null) return;
+    if (realVal !== null || !hasEverValidated) return;
     setPhase("scanning");
     setElapsed(0);
     const t1 = setTimeout(() => setPhase("result"), CYCLE_SCAN);
     const t2 = setTimeout(() => setQueueIdx(i => (i + 1) % QUEUE.length), CYCLE_TOTAL);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [queueIdx, realVal]);
+  }, [queueIdx, realVal, hasEverValidated]);
 
   useEffect(() => {
     const t0 = performance.now();
@@ -448,7 +466,7 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
             <div className="panel-head">
               <h3>Cápsula en análisis</h3>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span className="pill">{QUEUE.length - (queueIdx % QUEUE.length)} cápsulas en cola</span>
+                <span className="pill">{isWaiting ? "Sin imagen" : `${QUEUE.length - (queueIdx % QUEUE.length)} cápsulas en cola`}</span>
                 {realVal?.status === "done" && (
                   <button
                     className="btn ghost"
@@ -474,36 +492,41 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                   <div className="cap-id">{current.id}</div>
                   <div className="variety">{current.variety}</div>
                 </div>
-                <div className={"verdict-badge " + (displayPhase === "scanning" ? "scanning" : allOk ? "ok" : "bad")}>
+                <div className={"verdict-badge " + (isWaiting ? "scanning" : displayPhase === "scanning" ? "scanning" : allOk ? "ok" : "bad")}>
                   <div className="v-label">
-                    {displayPhase === "scanning" ? "Evaluando"
+                    {isWaiting ? "Sin imagen"
+                      : displayPhase === "scanning" ? "Evaluando"
                       : realVal?.status === "error" ? "Error de validación"
                       : "Resultado automático"}
                   </div>
                   <div className="v-value">
                     <span className="vicon">
-                      {displayPhase === "scanning" ? "…"
+                      {isWaiting ? "—"
+                        : displayPhase === "scanning" ? "…"
                         : realVal?.status === "error" ? "!"
                         : allOk ? "✓" : "✕"}
                     </span>
-                    {displayPhase === "scanning" ? "Analizando…"
+                    {isWaiting ? "EN ESPERA"
+                      : displayPhase === "scanning" ? "Analizando…"
                       : realVal?.status === "error" ? "ERROR"
                       : allOk ? "APROBADA" : "RECHAZADA"}
                   </div>
                   <div className="v-sub">
-                    {displayPhase === "scanning"
-                      ? (realVal?.status === "scanning" ? `Procesando ${realVal.filename}` : "Lectura de los 3 ejes")
-                      : realVal?.status === "error" ? realVal.message.slice(0, 60)
-                      : allOk
-                        ? "Cumple CC-2026 · " + displayElapsed.toFixed(2) + " s"
-                        : "Falla en Eje " + failedAxis + " · " + displayElapsed.toFixed(2) + " s"}
+                    {isWaiting
+                      ? "Subí una imagen para comenzar el análisis"
+                      : displayPhase === "scanning"
+                        ? (realVal?.status === "scanning" ? `Procesando ${realVal.filename}` : "Lectura de los 3 ejes")
+                        : realVal?.status === "error" ? realVal.message.slice(0, 60)
+                        : allOk
+                          ? "Cumple CC-2026 · " + displayElapsed.toFixed(2) + " s"
+                          : "Falla en Eje " + failedAxis + " · " + displayElapsed.toFixed(2) + " s"}
                   </div>
                 </div>
               </div>
               <div className="axes-grid">
                 {allAxes.map((axKey, i) => {
                   const ax = current.axes[axKey];
-                  const axState = displayPhase === "scanning" ? "scanning" : ax.status;
+                  const axState = isWaiting ? "scanning" : displayPhase === "scanning" ? "scanning" : ax.status;
                   return (
                     <div key={axKey} className={"axis " + axState} data-i={i}>
                       <div className="axis-head">
@@ -515,14 +538,18 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
                           : ax.title === "Cápsula" ? "Rotura de la cápsula"
                           : "Desorden de cápsulas"}
                       </div>
-                      <div className="axis-reading">{displayPhase === "scanning" ? "Midiendo…" : ax.reading}</div>
-                      <div className="axis-detail">{displayPhase === "scanning" ? "Recibiendo lectura del backend…" : ax.detail}</div>
+                      <div className="axis-reading">{isWaiting ? "En espera" : displayPhase === "scanning" ? "Midiendo…" : ax.reading}</div>
+                      <div className="axis-detail">{isWaiting ? "Cargá una imagen para analizar" : displayPhase === "scanning" ? "Recibiendo lectura del backend…" : ax.detail}</div>
                     </div>
                   );
                 })}
               </div>
               <div className="inspect-foot">
-                {realVal === null ? (
+                {isWaiting ? (
+                  <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+                    Subí una imagen en el panel derecho para iniciar la validación
+                  </span>
+                ) : realVal === null ? (
                   <>
                     <span>Próxima cápsula en <strong>{Math.max(0, (CYCLE_TOTAL / 1000 - elapsed)).toFixed(1)} s</strong></span>
                     <div className="countdown-bar"><i style={{ transform: `scaleX(${countdownPct})` }} /></div>
