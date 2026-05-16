@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Header from "@/components/Header";
 import { Reveal, CountUp, Capsule } from "@/components/shared";
-import { RECENT_INSPECTIONS, QUEUE, SHIFT, CHARTS } from "@/lib/data";
+import { RECENT_INSPECTIONS, QUEUE, SHIFT, CHARTS, type QueueItem, type RecentInspection } from "@/lib/data";
+import { validatePackage } from "@/lib/api";
+import type { ValidatorResult } from "@/lib/types";
 
 /* ---------- Scroll progress ---------- */
 function ScrollProgress() {
@@ -162,16 +164,118 @@ function LivecamCard() {
   );
 }
 
+/* ---------- Validator helpers ---------- */
+type RealVal =
+  | { status: "scanning"; filename: string }
+  | { status: "done"; item: QueueItem; approved: boolean; duration: number }
+  | { status: "error"; message: string };
+
+function mapResultToDisplay(
+  result: ValidatorResult,
+  filename: string,
+  duration: number
+): { queueItem: QueueItem; inspection: RecentInspection } {
+  const id = "C-" + String(Date.now()).slice(-6);
+  const now = new Date();
+  const time = now.toLocaleTimeString("es-AR", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+
+  const e1: "ok" | "fail" = result.failed_axes.packaging_damage ? "fail" : "ok";
+  const e2: "ok" | "fail" = result.failed_axes.capsule_damage ? "fail" : "ok";
+  const e3: "ok" | "fail" = result.failed_axes.capsule_disorder ? "fail" : "ok";
+  const label = filename.length > 20 ? filename.slice(0, 17) + "…" : filename;
+  const reasonLabel = result.reason.replace(/_/g, " ");
+
+  const queueItem: QueueItem = {
+    id,
+    product: label,
+    variety: reasonLabel,
+    color: result.approved ? "#3b1c10" : "#7f1d1d",
+    axes: {
+      eje1: {
+        status: e1,
+        title: "Empaquetado",
+        reading: e1 === "fail" ? "Daño en empaque" : "Empaque íntegro",
+        detail: e1 === "fail"
+          ? (result.observations[0] ?? "Daño en empaquetado detectado")
+          : "Foil íntegro · sin perforaciones",
+      },
+      eje2: {
+        status: e2,
+        title: "Cápsula",
+        reading: e2 === "fail" ? "Daño en cápsula" : `${(result.confidence * 100).toFixed(0)}% confianza`,
+        detail: result.validator_summary.slice(0, 80),
+      },
+      eje3: {
+        status: e3,
+        title: "Orden",
+        reading: e3 === "fail" ? "Desorden detectado" : "Orden correcto",
+        detail: result.secondary_reasons.length > 0
+          ? result.secondary_reasons.join(", ")
+          : "Sin observaciones adicionales",
+      },
+    },
+  };
+
+  const failedAxis =
+    result.failed_axes.packaging_damage ? 1
+    : result.failed_axes.capsule_damage ? 2
+    : result.failed_axes.capsule_disorder ? 3
+    : null;
+
+  const inspection: RecentInspection = {
+    n: id,
+    time,
+    product: label,
+    variety: reasonLabel,
+    eje1: { status: e1, reading: e1 === "fail" ? "Daño empaque" : "OK" },
+    eje2: { status: e2, reading: e2 === "fail" ? "Daño cápsula" : "OK" },
+    eje3: { status: e3, reading: e3 === "fail" ? "Desorden" : "OK" },
+    status: result.approved ? "ok" : "bad",
+    failedAxis,
+    detail: result.approved ? null : reasonLabel,
+    duration,
+  };
+
+  return { queueItem, inspection };
+}
+
 /* ---------- Inspection panel ---------- */
-function InspectionPanel() {
+function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspection) => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [realVal, setRealVal] = useState<RealVal | null>(null);
   const [queueIdx, setQueueIdx] = useState(0);
   const [phase, setPhase] = useState<"scanning" | "result">("scanning");
   const [elapsed, setElapsed] = useState(0);
 
-  const current = QUEUE[queueIdx % QUEUE.length];
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const startedAt = performance.now();
+    setRealVal({ status: "scanning", filename: file.name });
+    try {
+      const result = await validatePackage(file);
+      const duration = (performance.now() - startedAt) / 1000;
+      const { queueItem, inspection } = mapResultToDisplay(result, file.name, duration);
+      setRealVal({ status: "done", item: queueItem, approved: result.approved, duration });
+      onNewInspection(inspection);
+    } catch (err) {
+      setRealVal({ status: "error", message: err instanceof Error ? err.message : "Error al validar" });
+    }
+  }
+
+  const demoItem = QUEUE[queueIdx % QUEUE.length];
+  const current = realVal?.status === "done" ? realVal.item : demoItem;
   const allAxes = ["eje1", "eje2", "eje3"] as const;
   const allOk = allAxes.every(k => current.axes[k].status === "ok");
   const failedAxis = allAxes.findIndex(k => current.axes[k].status === "fail") + 1;
+  const displayPhase: "scanning" | "result" =
+    realVal === null ? phase
+    : realVal.status === "scanning" ? "scanning"
+    : "result";
+  const displayElapsed = realVal?.status === "done" ? realVal.duration : elapsed;
 
   const CYCLE_SCAN = 1200;
   const CYCLE_TOTAL = 4500;
@@ -209,7 +313,33 @@ function InspectionPanel() {
           <Reveal className="inspect-card panel">
             <div className="panel-head">
               <h3>Cápsula en análisis</h3>
-              <span className="pill">{QUEUE.length - (queueIdx % QUEUE.length)} cápsulas en cola</span>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span className="pill">{QUEUE.length - (queueIdx % QUEUE.length)} cápsulas en cola</span>
+                <button
+                  className="btn"
+                  style={{ padding: "4px 12px", fontSize: 12.5 }}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={realVal?.status === "scanning"}
+                >
+                  {realVal?.status === "scanning" ? "Analizando…" : "Subir imagen"}
+                </button>
+                {realVal?.status === "done" && (
+                  <button
+                    className="btn ghost"
+                    style={{ padding: "4px 12px", fontSize: 12.5 }}
+                    onClick={() => setRealVal(null)}
+                  >
+                    Demo
+                  </button>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  style={{ display: "none" }}
+                  onChange={handleFileChange}
+                />
+              </div>
             </div>
             <div className="inspect-stack" key={current.id}>
               <div className="inspect-top">
@@ -225,25 +355,36 @@ function InspectionPanel() {
                   <div className="cap-id">{current.id}</div>
                   <div className="variety">{current.variety}</div>
                 </div>
-                <div className={"verdict-badge " + (phase === "scanning" ? "scanning" : allOk ? "ok" : "bad")}>
-                  <div className="v-label">{phase === "scanning" ? "Evaluando" : "Resultado automático"}</div>
+                <div className={"verdict-badge " + (displayPhase === "scanning" ? "scanning" : allOk ? "ok" : "bad")}>
+                  <div className="v-label">
+                    {displayPhase === "scanning" ? "Evaluando"
+                      : realVal?.status === "error" ? "Error de validación"
+                      : "Resultado automático"}
+                  </div>
                   <div className="v-value">
-                    <span className="vicon">{phase === "scanning" ? "…" : allOk ? "✓" : "✕"}</span>
-                    {phase === "scanning" ? "Analizando…" : allOk ? "APROBADA" : "RECHAZADA"}
+                    <span className="vicon">
+                      {displayPhase === "scanning" ? "…"
+                        : realVal?.status === "error" ? "!"
+                        : allOk ? "✓" : "✕"}
+                    </span>
+                    {displayPhase === "scanning" ? "Analizando…"
+                      : realVal?.status === "error" ? "ERROR"
+                      : allOk ? "APROBADA" : "RECHAZADA"}
                   </div>
                   <div className="v-sub">
-                    {phase === "scanning"
-                      ? "Lectura de los 3 ejes"
+                    {displayPhase === "scanning"
+                      ? (realVal?.status === "scanning" ? `Procesando ${realVal.filename}` : "Lectura de los 3 ejes")
+                      : realVal?.status === "error" ? realVal.message.slice(0, 60)
                       : allOk
-                        ? "Cumple CC-2026 · " + elapsed.toFixed(2) + " s"
-                        : "Falla en Eje " + failedAxis + " · " + elapsed.toFixed(2) + " s"}
+                        ? "Cumple CC-2026 · " + displayElapsed.toFixed(2) + " s"
+                        : "Falla en Eje " + failedAxis + " · " + displayElapsed.toFixed(2) + " s"}
                   </div>
                 </div>
               </div>
               <div className="axes-grid">
                 {allAxes.map((axKey, i) => {
                   const ax = current.axes[axKey];
-                  const axState = phase === "scanning" ? "scanning" : ax.status;
+                  const axState = displayPhase === "scanning" ? "scanning" : ax.status;
                   return (
                     <div key={axKey} className={"axis " + axState} data-i={i}>
                       <div className="axis-head">
@@ -255,16 +396,28 @@ function InspectionPanel() {
                           : ax.title === "Cápsula" ? "Rotura de la cápsula"
                           : "Desorden de cápsulas"}
                       </div>
-                      <div className="axis-reading">{phase === "scanning" ? "Midiendo…" : ax.reading}</div>
-                      <div className="axis-detail">{phase === "scanning" ? "Recibiendo lectura del backend…" : ax.detail}</div>
+                      <div className="axis-reading">{displayPhase === "scanning" ? "Midiendo…" : ax.reading}</div>
+                      <div className="axis-detail">{displayPhase === "scanning" ? "Recibiendo lectura del backend…" : ax.detail}</div>
                     </div>
                   );
                 })}
               </div>
               <div className="inspect-foot">
-                <span>Próxima cápsula en <strong>{Math.max(0, (CYCLE_TOTAL / 1000 - elapsed)).toFixed(1)} s</strong></span>
-                <div className="countdown-bar"><i style={{ transform: `scaleX(${countdownPct})` }} /></div>
-                <span>Cola: <strong>{QUEUE.length - (queueIdx % QUEUE.length)}</strong> · Cápsula <strong>#{1144 + (queueIdx % QUEUE.length)}</strong></span>
+                {realVal === null ? (
+                  <>
+                    <span>Próxima cápsula en <strong>{Math.max(0, (CYCLE_TOTAL / 1000 - elapsed)).toFixed(1)} s</strong></span>
+                    <div className="countdown-bar"><i style={{ transform: `scaleX(${countdownPct})` }} /></div>
+                    <span>Cola: <strong>{QUEUE.length - (queueIdx % QUEUE.length)}</strong> · Cápsula <strong>#{1144 + (queueIdx % QUEUE.length)}</strong></span>
+                  </>
+                ) : (
+                  <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+                    {realVal.status === "scanning"
+                      ? `Analizando: ${realVal.filename}…`
+                      : realVal.status === "done"
+                        ? `Validado en ${realVal.duration.toFixed(2)} s · imagen real`
+                        : `Error: ${realVal.message}`}
+                  </span>
+                )}
               </div>
             </div>
           </Reveal>
@@ -285,10 +438,12 @@ function AxCell({ ax }: { ax: { status: string; reading: string } }) {
   );
 }
 
-function RecentInspectionsSection() {
-  const okCount = RECENT_INSPECTIONS.filter(r => r.status === "ok").length;
-  const badCount = RECENT_INSPECTIONS.length - okCount;
-  const avgDuration = (RECENT_INSPECTIONS.reduce((s, r) => s + r.duration, 0) / RECENT_INSPECTIONS.length).toFixed(2);
+function RecentInspectionsSection({ inspections }: { inspections: RecentInspection[] }) {
+  const okCount = inspections.filter(r => r.status === "ok").length;
+  const badCount = inspections.length - okCount;
+  const avgDuration = inspections.length > 0
+    ? (inspections.reduce((s, r) => s + r.duration, 0) / inspections.length).toFixed(2)
+    : "0.00";
 
   return (
     <section id="recientes" className="section" style={{ paddingTop: 24 }}>
@@ -298,7 +453,7 @@ function RecentInspectionsSection() {
             <h3>Inspecciones recientes</h3>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
-                <strong style={{ color: "var(--ink)" }}>{RECENT_INSPECTIONS.length}</strong> registros ·
+                <strong style={{ color: "var(--ink)" }}>{inspections.length}</strong> registros ·
                 <span style={{ color: "var(--ok)", marginLeft: 6 }}><strong>{okCount}</strong> aprobadas</span> ·
                 <span style={{ color: "var(--bad)", marginLeft: 6 }}><strong>{badCount}</strong> rechazadas</span> ·
                 tiempo medio <strong style={{ color: "var(--ink)" }}>{avgDuration} s</strong>
@@ -317,7 +472,7 @@ function RecentInspectionsSection() {
                 </tr>
               </thead>
               <tbody>
-                {RECENT_INSPECTIONS.map(r => (
+                {inspections.map(r => (
                   <tr key={r.n} className={r.status === "bad" ? "row-bad" : ""}>
                     <td className="lot-id">{r.n}</td>
                     <td className="time">{r.time}</td>
@@ -532,6 +687,11 @@ function Footer() {
 /* ---------- App ---------- */
 export default function Home() {
   const [active, setActive] = useState("resumen");
+  const [inspections, setInspections] = useState<RecentInspection[]>(RECENT_INSPECTIONS);
+
+  function handleNewInspection(inspection: RecentInspection) {
+    setInspections(prev => [inspection, ...prev]);
+  }
 
   useEffect(() => {
     const sections = ["resumen", "validacion", "recientes", "graficos"];
@@ -572,8 +732,8 @@ export default function Home() {
       <ScrollProgress />
       <Header active={active} setActive={setActive} />
       <PageHead />
-      <InspectionPanel />
-      <RecentInspectionsSection />
+      <InspectionPanel onNewInspection={handleNewInspection} />
+      <RecentInspectionsSection inspections={inspections} />
       <ChartsSection />
       <Footer />
     </>
