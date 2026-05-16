@@ -394,14 +394,14 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
             {hasResult ? (
               <div className="inspect-stack" key={realVal.item.id}>
                 <div className="inspect-top">
-                  <div className="inspect-vis" style={{ minHeight: 180, padding: 0, overflow: "hidden" }}>
+                  <div className="inspect-vis" style={{ minHeight: 340, padding: 0, overflow: "hidden" }}>
                     <img
                       src={realVal.previewUrl}
                       alt={realVal.filename}
                       style={{
                         width: "100%",
                         height: "100%",
-                        maxHeight: 260,
+                        maxHeight: 420,
                         objectFit: "contain",
                         borderRadius: "var(--r-md)",
                       }}
@@ -456,14 +456,14 @@ function InspectionPanel({ onNewInspection }: { onNewInspection: (i: RecentInspe
               </div>
             ) : realVal?.status === "scanning" ? (
               <div className="inspect-stack">
-                <div className="inspect-vis" style={{ minHeight: 180, padding: 0, overflow: "hidden", position: "relative" }}>
+                <div className="inspect-vis" style={{ minHeight: 340, padding: 0, overflow: "hidden", position: "relative" }}>
                   <img
                     src={realVal.previewUrl}
                     alt={realVal.filename}
                     style={{
                       width: "100%",
                       height: "100%",
-                      maxHeight: 260,
+                      maxHeight: 420,
                       objectFit: "contain",
                       borderRadius: "var(--r-md)",
                       opacity: 0.6,
